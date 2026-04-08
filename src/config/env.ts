@@ -7,6 +7,7 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   DATABASE_URL: z.string().min(1),
   PORT: z.coerce.number().default(4000),
+  CORS_ORIGIN: z.string().optional(),
   FRONTEND_URL: z.string().url().default('http://localhost:3000'),
   AUTH_SECRET: z.string().min(1),
   AUTH_BASE_URL: z.string().url().optional(),
@@ -74,5 +75,9 @@ if (!parsedEnv.success) {
 
 export const env = {
   ...parsedEnv.data,
-  AUTH_BASE_URL: parsedEnv.data.AUTH_BASE_URL ?? `http://localhost:${parsedEnv.data.PORT}`
+  AUTH_BASE_URL: parsedEnv.data.AUTH_BASE_URL ?? `http://localhost:${parsedEnv.data.PORT}`,
+  CORS_ORIGINS: (parsedEnv.data.CORS_ORIGIN
+    ? parsedEnv.data.CORS_ORIGIN.split(',').map((origin) => origin.trim())
+    : [parsedEnv.data.FRONTEND_URL]
+  ).filter(Boolean)
 };

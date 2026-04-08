@@ -47,7 +47,7 @@ app.use(
 );
 app.use(
   cors({
-    origin: env.FRONTEND_URL,
+    origin: env.CORS_ORIGINS,
     credentials: true
   })
 );

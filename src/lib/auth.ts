@@ -52,7 +52,7 @@ export const getAuth = async (): Promise<BetterAuthInstance> => {
         baseURL: env.AUTH_BASE_URL,
         basePath: '/api/auth/internal',
         secret: env.AUTH_SECRET,
-        trustedOrigins: [env.FRONTEND_URL],
+        trustedOrigins: Array.from(new Set([env.FRONTEND_URL, ...env.CORS_ORIGINS])),
         database: prismaAdapter(prisma, {
           provider: 'mysql'
         }),
