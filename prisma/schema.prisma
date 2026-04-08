@@ -1,0 +1,583 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  CLIENT_ADMIN
+}
+
+enum UserActivationStatus {
+  PENDIENTE_ACTIVACION
+  ACTIVO
+  INACTIVO
+}
+
+enum CompanyStatus {
+  PENDING_SETUP
+  ACTIVE
+  INACTIVE
+}
+
+enum SurveyCampaignStatus {
+  BORRADOR
+  CREADA
+  EN_PROCESO
+  FINALIZADA
+}
+
+enum SurveyTemplateKey {
+  BASE_CLIMA_V1
+}
+
+enum RespondentCredentialType {
+  TOKEN
+  PIN
+}
+
+enum SurveyResponseStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  SUBMITTED
+}
+
+enum ReminderScheduleStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ReminderDispatchStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum DashboardGroupBy {
+  COMPANY
+  GERENCIA
+  CENTRO
+}
+
+enum DashboardExportJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ResourceLibraryItemType {
+  ARTICLE
+  VIDEO
+  DOCUMENT
+  LINK
+}
+
+enum SupportConfigScope {
+  GLOBAL
+  COMPANY
+}
+
+enum AuditLogSeverity {
+  INFO
+  WARN
+  ERROR
+  SECURITY
+}
+
+model User {
+  id            String   @id @default(cuid())
+  name          String
+  lastName      String?
+  email         String   @unique
+  phone         String?
+  emailVerified Boolean  @default(false)
+  passwordHash  String?
+  image         String?
+  role          Role     @default(CLIENT_ADMIN)
+  activationStatus UserActivationStatus @default(ACTIVO)
+  companyId     String?
+  company       Company? @relation("CompanyMembers", fields: [companyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  isActive      Boolean  @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  createdCompanies   Company[]    @relation("CompanyCreatedBy")
+  createdInvitations Invitation[] @relation("InvitationCreatedBy")
+  createdSurveyCampaigns SurveyCampaign[] @relation("SurveyCampaignCreatedBy")
+  passwordResetTokens PasswordResetToken[] @relation("PasswordResetTokenUser")
+  issuedPasswordResetTokens PasswordResetToken[] @relation("PasswordResetTokenIssuedBy")
+  sessions           Session[]
+  accounts           Account[]
+  auditLogs          AuditLog[]   @relation("AuditActor")
+  dashboardExportJobs DashboardExportJob[] @relation("DashboardExportRequestedBy")
+  createdResourceLibraryItems ResourceLibraryItem[] @relation("ResourceLibraryCreatedBy")
+  updatedResourceLibraryItems ResourceLibraryItem[] @relation("ResourceLibraryUpdatedBy")
+  createdSupportConfigs SupportConfig[] @relation("SupportConfigCreatedBy")
+  updatedSupportConfigs SupportConfig[] @relation("SupportConfigUpdatedBy")
+  updatedCoolturaConfigs CoolturaConfig[] @relation("CoolturaConfigUpdatedBy")
+
+  @@index([companyId])
+  @@index([role])
+  @@index([isActive])
+  @@index([activationStatus])
+}
+
+model Company {
+  id               String        @id @default(cuid())
+  name             String
+  slug             String        @unique
+  logoUrl          String?
+  supportWhatsappPhone String?
+  workerCount      Int           @default(0)
+  contactEmail     String
+  status           CompanyStatus @default(PENDING_SETUP)
+  createdByAdminId String
+  createdByAdmin   User          @relation("CompanyCreatedBy", fields: [createdByAdminId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  members     User[]       @relation("CompanyMembers")
+  invitations Invitation[]
+  auditLogs   AuditLog[]   @relation("CompanyAudit")
+  surveyCampaigns SurveyCampaign[]
+  respondents Respondent[]
+  resourceLibraryItems ResourceLibraryItem[]
+  supportConfigs SupportConfig[]
+
+  @@index([contactEmail])
+  @@index([status])
+  @@index([createdByAdminId])
+}
+
+model Invitation {
+  id               String    @id @default(cuid())
+  email            String
+  token            String    @unique
+  companyId        String
+  company          Company   @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  role             Role      @default(CLIENT_ADMIN)
+  expiresAt        DateTime
+  acceptedAt       DateTime?
+  revokedAt        DateTime?
+  createdByAdminId String
+  createdByAdmin   User      @relation("InvitationCreatedBy", fields: [createdByAdminId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([companyId])
+  @@index([email])
+  @@index([role])
+  @@index([expiresAt])
+  @@index([createdByAdminId])
+}
+
+model PasswordResetToken {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation("PasswordResetTokenUser", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  token            String    @unique
+  expiresAt        DateTime
+  usedAt           DateTime?
+  revokedAt        DateTime?
+  createdByAdminId String
+  createdByAdmin   User      @relation("PasswordResetTokenIssuedBy", fields: [createdByAdminId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdAt        DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([createdByAdminId])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId             String
+  providerId            String
+  accessToken           String?   @db.Text
+  refreshToken          String?   @db.Text
+  idToken               String?   @db.Text
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@index([expiresAt])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String
+  actorUser   User     @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  action      String
+  severity    AuditLogSeverity @default(INFO)
+  companyId   String?
+  company     Company? @relation("CompanyAudit", fields: [companyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  targetType  String?
+  targetId    String?
+  requestId   String?
+  ipAddress   String?
+  userAgent   String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([actorUserId])
+  @@index([companyId])
+  @@index([action])
+  @@index([severity])
+  @@index([requestId])
+  @@index([createdAt])
+}
+
+model ResourceLibraryItem {
+  id              String                  @id @default(cuid())
+  title           String
+  description     String?                 @db.Text
+  url             String
+  itemType        ResourceLibraryItemType @default(LINK)
+  companyId       String?
+  company         Company?                @relation(fields: [companyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  isActive        Boolean                 @default(true)
+  createdByUserId String
+  createdByUser   User                    @relation("ResourceLibraryCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  updatedByUserId String?
+  updatedByUser   User?                   @relation("ResourceLibraryUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  metadata        Json?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  @@index([companyId, isActive])
+  @@index([itemType])
+  @@index([createdByUserId])
+  @@index([updatedByUserId])
+  @@index([title])
+  @@index([createdAt])
+}
+
+model SupportConfig {
+  id              String            @id @default(cuid())
+  scopeType       SupportConfigScope
+  scopeKey        String            @unique
+  companyId       String?
+  company         Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  whatsappLink    String?
+  supportEmail    String?
+  helpCenterUrl   String?
+  enabled         Boolean           @default(true)
+  createdByUserId String?
+  createdByUser   User?             @relation("SupportConfigCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  updatedByUserId String?
+  updatedByUser   User?             @relation("SupportConfigUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([scopeType])
+  @@index([companyId])
+  @@index([enabled])
+  @@index([createdAt])
+}
+
+model CoolturaConfig {
+  id                String   @id @default(cuid())
+
+  // Social media
+  linkedinUrl       String?
+  youtubeUrl        String?
+  instagramUrl      String?
+  facebookUrl       String?
+  tiktokUrl         String?
+  whatsappLink      String?
+
+  // Bolivia
+  boliviaDireccion  String?
+  boliviaTelefono   String?
+  boliviaEmail      String?
+
+  // Paraguay
+  paraguayDireccion String?
+  paraguayTelefono  String?
+  paraguayEmail     String?
+
+  updatedByUserId   String?
+  updatedByUser     User?    @relation("CoolturaConfigUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model SurveyCampaign {
+  id                     String               @id @default(cuid())
+  companyId              String
+  company                Company              @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  slug                   String               @unique
+  name                   String
+  templateKey            SurveyTemplateKey    @default(BASE_CLIMA_V1)
+  status                 SurveyCampaignStatus @default(BORRADOR)
+  createdByAdminId       String
+  createdByAdmin         User                 @relation("SurveyCampaignCreatedBy", fields: [createdByAdminId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  startDate              DateTime
+  endDate                DateTime
+  initialSendScheduledAt DateTime?
+  remindersLockedAt      DateTime?
+  finalizedAt            DateTime?
+
+  introGeneral         String @db.Text
+  leaderIntro          String @db.Text
+  leaderQuestions      Json
+  leaderExtraQuestion  String? @db.Text
+  teamIntro            String @db.Text
+  teamQuestions        Json
+  teamExtraQuestion    String? @db.Text
+  organizationIntro    String @db.Text
+  organizationQuestions Json
+  organizationExtraQuestion String? @db.Text
+  finalNpsQuestion     String @db.Text
+  finalOpenQuestion    String @db.Text
+  closingText          String @db.Text
+  tutorialVideoUrl     String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reminders SurveyReminder[]
+  respondents Respondent[]
+  accessCredentials RespondentAccessCredential[]
+  responses SurveyResponse[]
+  answers SurveyAnswer[]
+  reminderSchedules ReminderSchedule[]
+  reminderDispatches ReminderDispatch[]
+  dashboardExportJobs DashboardExportJob[]
+
+  @@index([companyId])
+  @@index([status])
+  @@index([createdByAdminId])
+  @@index([startDate])
+  @@index([endDate])
+  @@index([finalizedAt])
+}
+
+model SurveyReminder {
+  id               String         @id @default(cuid())
+  surveyCampaignId String
+  surveyCampaign   SurveyCampaign @relation(fields: [surveyCampaignId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  scheduledAt      DateTime
+  targetNotStarted Boolean        @default(true)
+  targetNotFinished Boolean       @default(true)
+  createdAt        DateTime       @default(now())
+
+  @@index([surveyCampaignId])
+  @@index([scheduledAt])
+}
+
+model Respondent {
+  id               String   @id @default(cuid())
+  companyId        String
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  surveyCampaignId String
+  surveyCampaign   SurveyCampaign @relation(fields: [surveyCampaignId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  identifier       String?
+  fullName         String?
+  email            String?
+  gerencia         String?
+  centro           String?
+  metadata         Json?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  accessCredentials RespondentAccessCredential[]
+  response         SurveyResponse?
+  reminderDispatches ReminderDispatch[]
+
+  @@index([companyId])
+  @@index([surveyCampaignId])
+  @@index([surveyCampaignId, gerencia])
+  @@index([surveyCampaignId, centro])
+  @@index([email])
+  @@index([isActive])
+  @@unique([surveyCampaignId, identifier])
+}
+
+model RespondentAccessCredential {
+  id               String                  @id @default(cuid())
+  respondentId     String
+  respondent       Respondent              @relation(fields: [respondentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  surveyCampaignId String
+  surveyCampaign   SurveyCampaign          @relation(fields: [surveyCampaignId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  credentialType   RespondentCredentialType
+  tokenHash        String?                 @unique
+  pinHash          String?
+  expiresAt        DateTime
+  validatedAt      DateTime?
+  consumedAt       DateTime?
+  revokedAt        DateTime?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  responses SurveyResponse[]
+  reminderDispatches ReminderDispatch[]
+
+  @@index([respondentId])
+  @@index([surveyCampaignId])
+  @@index([credentialType])
+  @@index([expiresAt])
+  @@index([consumedAt])
+  @@index([revokedAt])
+}
+
+model SurveyResponse {
+  id                 String                     @id @default(cuid())
+  surveyCampaignId   String
+  surveyCampaign     SurveyCampaign             @relation(fields: [surveyCampaignId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  respondentId       String                     @unique
+  respondent         Respondent                 @relation(fields: [respondentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  accessCredentialId String?
+  accessCredential   RespondentAccessCredential? @relation(fields: [accessCredentialId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  status             SurveyResponseStatus       @default(NOT_STARTED)
+  sessionTokenHash   String?                    @unique
+  sessionExpiresAt   DateTime?
+  startedAt          DateTime?
+  lastActivityAt     DateTime?
+  submittedAt        DateTime?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+
+  answers SurveyAnswer[]
+
+  @@index([surveyCampaignId])
+  @@index([surveyCampaignId, status])
+  @@index([surveyCampaignId, submittedAt])
+  @@index([status])
+  @@index([sessionExpiresAt])
+  @@index([submittedAt])
+  @@index([accessCredentialId])
+}
+
+model SurveyAnswer {
+  id               String         @id @default(cuid())
+  surveyResponseId String
+  surveyResponse   SurveyResponse @relation(fields: [surveyResponseId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  surveyCampaignId String
+  surveyCampaign   SurveyCampaign @relation(fields: [surveyCampaignId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  questionKey      String
+  sectionKey       String?
+  value            Json
+  answeredAt       DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@unique([surveyResponseId, questionKey])
+  @@index([surveyCampaignId])
+  @@index([surveyCampaignId, questionKey])
+  @@index([sectionKey])
+}
+
+model ReminderSchedule {
+  id               String               @id @default(cuid())
+  surveyCampaignId String
+  surveyCampaign   SurveyCampaign       @relation(fields: [surveyCampaignId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  scheduledAt      DateTime
+  status           ReminderScheduleStatus @default(PENDING)
+  attemptCount     Int                  @default(0)
+  lastAttemptAt    DateTime?
+  processedAt      DateTime?
+  nextRetryAt      DateTime?
+  lockToken        String?
+  createdByUserId  String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  dispatches ReminderDispatch[]
+
+  @@unique([surveyCampaignId, scheduledAt])
+  @@index([surveyCampaignId])
+  @@index([scheduledAt, status])
+  @@index([nextRetryAt])
+}
+
+model ReminderDispatch {
+  id                 String               @id @default(cuid())
+  reminderScheduleId String
+  reminderSchedule   ReminderSchedule     @relation(fields: [reminderScheduleId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  surveyCampaignId   String
+  surveyCampaign     SurveyCampaign       @relation(fields: [surveyCampaignId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  respondentId       String
+  respondent         Respondent           @relation(fields: [respondentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  accessCredentialId String?
+  accessCredential   RespondentAccessCredential? @relation(fields: [accessCredentialId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  status             ReminderDispatchStatus @default(PENDING)
+  idempotencyKey     String               @unique
+  attemptCount       Int                  @default(0)
+  sentAt             DateTime?
+  lastAttemptAt      DateTime?
+  errorMessage       String?              @db.Text
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@unique([reminderScheduleId, respondentId])
+  @@index([surveyCampaignId, status])
+  @@index([respondentId])
+  @@index([accessCredentialId])
+}
+
+model DashboardExportJob {
+  id                String                 @id @default(cuid())
+  surveyCampaignId  String
+  surveyCampaign    SurveyCampaign         @relation(fields: [surveyCampaignId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  requestedByUserId String
+  requestedByUser   User                   @relation("DashboardExportRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  status            DashboardExportJobStatus @default(PENDING)
+  groupBy           DashboardGroupBy
+  attemptCount      Int                    @default(0)
+  maxAttempts       Int                    @default(3)
+  startedAt         DateTime?
+  completedAt       DateTime?
+  nextRetryAt       DateTime?
+  filePath          String?
+  fileUrl           String?
+  errorMessage      String?                @db.Text
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  @@index([surveyCampaignId, status])
+  @@index([requestedByUserId, createdAt])
+  @@index([status, nextRetryAt])
+}
