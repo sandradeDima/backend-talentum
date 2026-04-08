@@ -9,6 +9,12 @@ type ReminderWorkerHandle = {
 };
 
 export const startReminderWorker = (): ReminderWorkerHandle => {
+  monitoringService.registerWorker({
+    worker: 'reminder',
+    enabled: env.REMINDER_WORKER_ENABLED,
+    intervalSeconds: env.REMINDER_WORKER_INTERVAL_SECONDS
+  });
+
   if (!env.REMINDER_WORKER_ENABLED) {
     logger.info('reminder_worker_disabled');
     return {

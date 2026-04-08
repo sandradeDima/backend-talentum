@@ -9,6 +9,12 @@ type DashboardExportWorkerHandle = {
 };
 
 export const startDashboardExportWorker = (): DashboardExportWorkerHandle => {
+  monitoringService.registerWorker({
+    worker: 'dashboard_export',
+    enabled: env.DASHBOARD_EXPORT_WORKER_ENABLED,
+    intervalSeconds: env.DASHBOARD_EXPORT_WORKER_INTERVAL_SECONDS
+  });
+
   if (!env.DASHBOARD_EXPORT_WORKER_ENABLED) {
     logger.info('dashboard_export_worker_disabled');
     return {

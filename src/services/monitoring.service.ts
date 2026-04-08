@@ -6,11 +6,16 @@ type RequestAggregate = {
 };
 
 type WorkerAggregate = {
+  enabled: boolean;
+  intervalSeconds: number;
   successCount: number;
   errorCount: number;
   totalDurationMs: number;
   maxDurationMs: number;
+  lastRunAt: string | null;
+  lastSuccessAt: string | null;
   lastErrorAt: string | null;
+  lastStatus: 'success' | 'error' | null;
 };
 
 const requestMetrics = new Map<string, RequestAggregate>();
@@ -47,22 +52,55 @@ export class MonitoringService {
     durationMs: number;
   }) {
     const current = workerMetrics.get(input.worker) ?? {
+      enabled: true,
+      intervalSeconds: 60,
       successCount: 0,
       errorCount: 0,
       totalDurationMs: 0,
       maxDurationMs: 0,
-      lastErrorAt: null
+      lastRunAt: null,
+      lastSuccessAt: null,
+      lastErrorAt: null,
+      lastStatus: null
     };
+    const nowIso = new Date().toISOString();
 
     if (input.status === 'success') {
       current.successCount += 1;
+      current.lastSuccessAt = nowIso;
     } else {
       current.errorCount += 1;
-      current.lastErrorAt = new Date().toISOString();
+      current.lastErrorAt = nowIso;
     }
 
     current.totalDurationMs += input.durationMs;
     current.maxDurationMs = Math.max(current.maxDurationMs, input.durationMs);
+    current.lastRunAt = nowIso;
+    current.lastStatus = input.status;
+
+    workerMetrics.set(input.worker, current);
+  }
+
+  registerWorker(input: {
+    worker: string;
+    enabled: boolean;
+    intervalSeconds: number;
+  }) {
+    const current = workerMetrics.get(input.worker) ?? {
+      enabled: input.enabled,
+      intervalSeconds: input.intervalSeconds,
+      successCount: 0,
+      errorCount: 0,
+      totalDurationMs: 0,
+      maxDurationMs: 0,
+      lastRunAt: null,
+      lastSuccessAt: null,
+      lastErrorAt: null,
+      lastStatus: null
+    };
+
+    current.enabled = input.enabled;
+    current.intervalSeconds = input.intervalSeconds;
 
     workerMetrics.set(input.worker, current);
   }
@@ -80,11 +118,16 @@ export class MonitoringService {
       const runs = value.successCount + value.errorCount;
       return {
         worker,
+        enabled: value.enabled,
+        intervalSeconds: value.intervalSeconds,
         successCount: value.successCount,
         errorCount: value.errorCount,
         avgDurationMs: runs > 0 ? Number((value.totalDurationMs / runs).toFixed(2)) : 0,
         maxDurationMs: Number(value.maxDurationMs.toFixed(2)),
-        lastErrorAt: value.lastErrorAt
+        lastRunAt: value.lastRunAt,
+        lastSuccessAt: value.lastSuccessAt,
+        lastErrorAt: value.lastErrorAt,
+        lastStatus: value.lastStatus
       };
     });
 
