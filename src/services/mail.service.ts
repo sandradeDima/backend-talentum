@@ -73,21 +73,24 @@ export class MailService {
     campaignName: string;
     campaignSlug: string;
     magicLinkToken: string;
-    accessCode: string;
+    accessCode?: string;
     expiresAt: Date;
   }) {
     const magicLinkUrl = this.buildSurveyMagicLinkUrl(
       input.campaignSlug,
       input.magicLinkToken
     );
-    const accessCodeUrl = this.buildSurveyAccessCodeUrl(input.campaignSlug);
 
     const template = buildSurveyInvitationEmail({
       companyName: input.companyName,
       campaignName: input.campaignName,
       magicLinkUrl,
-      accessCodeUrl,
-      accessCode: input.accessCode,
+      ...(input.accessCode
+        ? {
+            accessCodeUrl: this.buildSurveyAccessCodeUrl(input.campaignSlug),
+            accessCode: input.accessCode
+          }
+        : {}),
       expiresAt: input.expiresAt
     });
 
@@ -99,7 +102,12 @@ export class MailService {
       html: template.html
     });
 
-    return { magicLinkUrl, accessCodeUrl };
+    return {
+      magicLinkUrl,
+      ...(input.accessCode
+        ? { accessCodeUrl: this.buildSurveyAccessCodeUrl(input.campaignSlug) }
+        : {})
+    };
   }
 
   async sendSurveyReminderEmail(input: {

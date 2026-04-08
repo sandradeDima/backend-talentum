@@ -2,19 +2,35 @@ export const buildSurveyInvitationEmail = (params: {
   companyName: string;
   campaignName: string;
   magicLinkUrl: string;
-  accessCodeUrl: string;
-  accessCode: string;
+  accessCodeUrl?: string;
+  accessCode?: string;
   expiresAt: Date;
 }) => {
   const expirationText = params.expiresAt.toISOString();
+  const manualAccessLines =
+    params.accessCode && params.accessCodeUrl
+      ? [
+          `Ingreso con código: ${params.accessCodeUrl}`,
+          `Código de acceso (documento): ${params.accessCode}`
+        ]
+      : [];
+  const manualAccessHtml =
+    params.accessCode && params.accessCodeUrl
+      ? `
+        <p><strong>Código de acceso (documento)</strong>: ${params.accessCode}</p>
+        <p>
+          Si prefieres ingresar manualmente con tu código, usa este enlace:
+          <a href="${params.accessCodeUrl}">${params.accessCodeUrl}</a>
+        </p>
+      `
+      : '';
 
   return {
     subject: `Encuesta disponible: ${params.campaignName}`,
     text: [
       `Tu organización ${params.companyName} habilitó la encuesta "${params.campaignName}".`,
       `Magic link: ${params.magicLinkUrl}`,
-      `Ingreso con código: ${params.accessCodeUrl}`,
-      `Código de acceso (documento): ${params.accessCode}`,
+      ...manualAccessLines,
       `La credencial del magic link vence en: ${expirationText}`
     ].join('\n'),
     html: `
@@ -26,11 +42,7 @@ export const buildSurveyInvitationEmail = (params: {
             Entrar con magic link
           </a>
         </p>
-        <p><strong>Código de acceso (documento)</strong>: ${params.accessCode}</p>
-        <p>
-          Si prefieres ingresar manualmente con tu código, usa este enlace:
-          <a href="${params.accessCodeUrl}">${params.accessCodeUrl}</a>
-        </p>
+        ${manualAccessHtml}
         <p>Si no puedes hacer click en el magic link, usa este enlace:</p>
         <p><a href="${params.magicLinkUrl}">${params.magicLinkUrl}</a></p>
         <p><small>La credencial del magic link vence en: ${expirationText}</small></p>
