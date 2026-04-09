@@ -1,6 +1,7 @@
 import { Role, UserActivationStatus, type Prisma } from '@prisma/client';
 import { env } from '../config/env';
 import type {
+  CreateGlobalAdminDto,
   CreateCompanyUserDto,
   ListGlobalCompanyUsersQueryDto,
   UpdateCompanyUserDto
@@ -20,6 +21,7 @@ import { randomToken, sha256 } from '../utils/hash';
 import { normalizeSlug } from '../utils/slug';
 import { MailService } from './mail.service';
 import { PasswordResetService } from './password-reset.service';
+import { hashPassword } from '../lib/auth';
 
 const CLIENT_ADMIN_ROLE = Role.CLIENT_ADMIN;
 
@@ -211,6 +213,52 @@ export class CompanyUserService {
         total: result.total,
         totalPages: Math.max(1, Math.ceil(result.total / query.pageSize))
       }
+    };
+  }
+
+  async createGlobalAdmin(input: CreateGlobalAdminDto, principal: SessionPrincipal) {
+    this.assertAdmin(principal);
+
+    const normalizedEmail = input.email.toLowerCase();
+    const existingUser = await this.userRepository.findByEmail(normalizedEmail);
+
+    if (existingUser) {
+      throw new AppError('Ya existe un usuario con este correo', 409, 'ADMIN_USER_EMAIL_ALREADY_EXISTS');
+    }
+
+    const passwordHash = await hashPassword(input.password);
+
+    const user = await prisma.$transaction(async (tx) => {
+      const createdUser = await this.userRepository.createGlobalAdminWithCredential(
+        {
+          name: input.name.trim(),
+          lastName: input.lastName.trim() || null,
+          phone: input.phone.trim() || null,
+          email: normalizedEmail,
+          passwordHash
+        },
+        tx
+      );
+
+      await this.auditLogRepository.create(
+        {
+          actorUserId: principal.id,
+          action: 'GLOBAL_ADMIN_CREATED',
+          targetType: 'USER',
+          targetId: createdUser.id,
+          metadata: {
+            email: normalizedEmail,
+            role: Role.ADMIN
+          }
+        },
+        tx
+      );
+
+      return createdUser;
+    });
+
+    return {
+      user: this.serializeGlobalCompanyUser(user)
     };
   }
 

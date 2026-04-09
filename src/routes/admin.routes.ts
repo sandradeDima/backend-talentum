@@ -11,6 +11,12 @@ adminRouter.get(
   requireAdmin,
   asyncHandler(adminController.listUsers.bind(adminController))
 );
+adminRouter.post(
+  '/users',
+  requireAuth,
+  requireAdmin,
+  asyncHandler(adminController.createGlobalAdmin.bind(adminController))
+);
 
 adminRouter.get(
   '/surveys',

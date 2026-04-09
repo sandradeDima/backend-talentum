@@ -17,6 +17,14 @@ export const createCompanyUserDtoSchema = z.object({
   role: companyAdminRoleSchema.optional().default(Role.CLIENT_ADMIN)
 });
 
+export const createGlobalAdminDtoSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  lastName: z.string().trim().max(120).optional().default(''),
+  email: z.string().trim().email(),
+  phone: z.string().trim().max(40).optional().default(''),
+  password: z.string().min(8).max(120)
+});
+
 export const updateCompanyUserDtoSchema = z
   .object({
     name: z.string().trim().min(2).max(120).optional(),
@@ -39,6 +47,7 @@ export const listGlobalCompanyUsersQueryDtoSchema = z.object({
 });
 
 export type CreateCompanyUserDto = z.infer<typeof createCompanyUserDtoSchema>;
+export type CreateGlobalAdminDto = z.infer<typeof createGlobalAdminDtoSchema>;
 export type UpdateCompanyUserDto = z.infer<typeof updateCompanyUserDtoSchema>;
 export type ListGlobalCompanyUsersQueryDto = z.infer<
   typeof listGlobalCompanyUsersQueryDtoSchema

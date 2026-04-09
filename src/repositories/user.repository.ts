@@ -93,7 +93,9 @@ export class UserRepository {
     activationStatus?: UserActivationStatus;
   }) {
     const where: Prisma.UserWhereInput = {
-      role: Role.CLIENT_ADMIN,
+      role: {
+        in: [Role.ADMIN, Role.CLIENT_ADMIN]
+      },
       ...(input.activationStatus ? { activationStatus: input.activationStatus } : {}),
       ...(input.company
         ? {
@@ -149,6 +151,21 @@ export class UserRepository {
         role: Role.CLIENT_ADMIN
       },
       select: companyAdminUserSelect
+    });
+  }
+
+  async findGlobalAdminById(
+    userId: string,
+    tx?: Prisma.TransactionClient
+  ) {
+    const db = tx ?? prisma;
+
+    return db.user.findFirst({
+      where: {
+        id: userId,
+        role: Role.ADMIN
+      },
+      select: globalCompanyAdminUserSelect
     });
   }
 
@@ -211,6 +228,42 @@ export class UserRepository {
     await this.upsertCredentialAccount(user.id, input.passwordHash, tx);
 
     return user;
+  }
+
+  async createGlobalAdminWithCredential(
+    input: {
+      name: string;
+      lastName?: string | null;
+      phone?: string | null;
+      email: string;
+      passwordHash: string;
+    },
+    tx: Prisma.TransactionClient
+  ) {
+    const user = await tx.user.create({
+      data: {
+        name: input.name,
+        lastName: input.lastName ?? null,
+        phone: input.phone ?? null,
+        email: input.email.toLowerCase(),
+        emailVerified: true,
+        passwordHash: input.passwordHash,
+        role: Role.ADMIN,
+        activationStatus: UserActivationStatus.ACTIVO,
+        companyId: null,
+        isActive: true
+      },
+      select: defaultUserSelect
+    });
+
+    await this.upsertCredentialAccount(user.id, input.passwordHash, tx);
+
+    return tx.user.findUniqueOrThrow({
+      where: {
+        id: user.id
+      },
+      select: globalCompanyAdminUserSelect
+    });
   }
 
   async updateById(

@@ -2,7 +2,10 @@ import type { Request, Response } from 'express';
 import { AppError } from '../errors/appError';
 import { companyUserService, surveyOperationsService, surveyService } from '../lib/container';
 import { successResponse } from '../utils/apiResponse';
-import { validateListGlobalCompanyUsersQuery } from '../validators/company-user.validator';
+import {
+  validateCreateGlobalAdmin,
+  validateListGlobalCompanyUsersQuery
+} from '../validators/company-user.validator';
 import { validateRunReminderWorkerNow } from '../validators/survey-operations.validator';
 import { validateListGlobalSurveyCampaignsQuery } from '../validators/survey.validator';
 
@@ -16,6 +19,17 @@ export class AdminController {
     const result = await companyUserService.listGlobalUsers(query, req.authSession.user);
 
     res.status(200).json(successResponse('Usuarios globales obtenidos', result));
+  }
+
+  async createGlobalAdmin(req: Request, res: Response) {
+    if (!req.authSession) {
+      throw new AppError('No autenticado', 401, 'SESSION_NOT_FOUND');
+    }
+
+    const input = validateCreateGlobalAdmin(req.body);
+    const result = await companyUserService.createGlobalAdmin(input, req.authSession.user);
+
+    res.status(201).json(successResponse('Administrador global creado', result));
   }
 
   async listSurveys(req: Request, res: Response) {
