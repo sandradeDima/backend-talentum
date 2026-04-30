@@ -736,6 +736,20 @@ export class SurveyService {
 
     const company = await this.resolveCompanyBySlug(companySlug, principal);
     const campaign = await this.resolveCampaignBySlug(company.id, surveySlug);
+    const activeParticipants = await prisma.respondent.count({
+      where: {
+        surveyCampaignId: campaign.id,
+        isActive: true
+      }
+    });
+
+    if (activeParticipants === 0) {
+      throw new AppError(
+        'Debes importar al menos un participante antes de programar el envío inicial',
+        409,
+        'SURVEY_PARTICIPANTS_REQUIRED_BEFORE_INITIAL_SEND'
+      );
+    }
 
     const lifecycle = deriveSurveyLifecycle(campaign);
 
@@ -960,14 +974,6 @@ export class SurveyService {
       );
     }
 
-    if (campaign.remindersLockedAt) {
-      throw new AppError(
-        'Los recordatorios ya fueron confirmados y no pueden editarse',
-        409,
-        'SURVEY_REMINDERS_LOCKED'
-      );
-    }
-
     if (Date.now() > campaign.endDate.getTime()) {
       throw new AppError(
         'La encuesta ya finalizó y no admite nuevos recordatorios',
@@ -1017,12 +1023,35 @@ export class SurveyService {
     );
 
     const updated = await prisma.$transaction(async (tx) => {
-      await this.surveyRepository.replaceReminders(campaign.id, deduplicated, tx);
-      await tx.reminderSchedule.deleteMany({
+      const now = new Date();
+
+      await tx.surveyReminder.deleteMany({
         where: {
-          surveyCampaignId: campaign.id
+          surveyCampaignId: campaign.id,
+          scheduledAt: {
+            gt: now
+          }
         }
       });
+
+      await tx.surveyReminder.createMany({
+        data: deduplicated.map((scheduledAt) => ({
+          surveyCampaignId: campaign.id,
+          scheduledAt,
+          targetNotStarted: true,
+          targetNotFinished: true
+        }))
+      });
+
+      await tx.reminderSchedule.deleteMany({
+        where: {
+          surveyCampaignId: campaign.id,
+          scheduledAt: {
+            gt: now
+          }
+        }
+      });
+
       await tx.reminderSchedule.createMany({
         data: deduplicated.map((scheduledAt) => ({
           surveyCampaignId: campaign.id,
@@ -1035,7 +1064,7 @@ export class SurveyService {
       const result = await this.surveyRepository.updateById(
         campaign.id,
         {
-          remindersLockedAt: new Date()
+          remindersLockedAt: null
         },
         tx
       );
@@ -1048,7 +1077,8 @@ export class SurveyService {
           targetType: 'SURVEY_CAMPAIGN',
           targetId: result.id,
           metadata: {
-            remindersCount: deduplicated.length
+            remindersCount: deduplicated.length,
+            preservedPastSchedules: true
           }
         },
         tx

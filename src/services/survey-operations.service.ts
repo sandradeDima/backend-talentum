@@ -312,6 +312,16 @@ export class SurveyOperationsService {
     }
   }
 
+  private assertCampaignAllowsRespondentImport(campaign: CampaignScope['campaign']) {
+    if (campaign.status === SurveyCampaignStatus.FINALIZADA) {
+      throw new AppError('La encuesta ya finalizó', 409, 'SURVEY_CAMPAIGN_FINISHED');
+    }
+
+    if (campaign.endDate.getTime() < Date.now()) {
+      throw new AppError('La encuesta ya finalizó', 409, 'SURVEY_CAMPAIGN_FINISHED');
+    }
+  }
+
   private resolveColumn(headers: string[], aliases: string[]) {
     const aliasSet = new Set(aliases.map((alias) => normalizeHeader(alias)));
     return headers.find((header) => aliasSet.has(normalizeHeader(header))) ?? null;
@@ -850,7 +860,7 @@ export class SurveyOperationsService {
   ) {
     this.assertCanManageSensitiveOperations(principal);
     const scope = await this.resolveScope(companySlug, surveySlug, principal);
-    this.assertCampaignIsOpen(scope.campaign);
+    this.assertCampaignAllowsRespondentImport(scope.campaign);
 
     const parsed = this.parseImportFile(input);
     const validation = this.buildValidatedImportRows({
