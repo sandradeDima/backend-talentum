@@ -250,7 +250,7 @@ export class SurveyOperationsService {
     campaignName: string;
     campaignSlug: string;
     magicLinkToken: string;
-    accessCode?: string;
+    accessCode: string;
     expiresAt: Date;
   }) {
     await retryQueueService.execute({
@@ -264,7 +264,7 @@ export class SurveyOperationsService {
           campaignName: input.campaignName,
           campaignSlug: input.campaignSlug,
           magicLinkToken: input.magicLinkToken,
-          ...(input.accessCode ? { accessCode: input.accessCode } : {}),
+          accessCode: input.accessCode,
           expiresAt: input.expiresAt
         })
     });
@@ -796,7 +796,7 @@ export class SurveyOperationsService {
       campaignName: string;
       campaignSlug: string;
       magicLinkToken: string;
-      accessCode?: string;
+      accessCode: string;
       expiresAt: Date;
       respondentId: string;
     }>
@@ -824,7 +824,7 @@ export class SurveyOperationsService {
                 campaignName: current.campaignName,
                 campaignSlug: current.campaignSlug,
                 magicLinkToken: current.magicLinkToken,
-                ...(current.accessCode ? { accessCode: current.accessCode } : {}),
+                accessCode: current.accessCode,
                 expiresAt: current.expiresAt
               });
               success.push({ respondentId: current.respondentId });
@@ -890,7 +890,7 @@ export class SurveyOperationsService {
       respondentId: string;
       to: string;
       magicLinkToken: string;
-      accessCode?: string;
+      accessCode: string;
       expiresAt: Date;
     }> = [];
 
@@ -1016,7 +1016,7 @@ export class SurveyOperationsService {
             respondentId: persisted.id,
             to: persisted.email,
             magicLinkToken: magicLinkCredential.rawCredential,
-            ...(input.includeRawCredentials ? { accessCode: persisted.identifier } : {}),
+            accessCode: persisted.identifier,
             expiresAt: magicLinkCredential.expiresAt
           });
         }
@@ -1377,7 +1377,7 @@ export class SurveyOperationsService {
       respondentId: string;
       to: string;
       magicLinkToken: string;
-      accessCode?: string;
+      accessCode: string;
       expiresAt: Date;
     }> = [];
 
@@ -1424,7 +1424,7 @@ export class SurveyOperationsService {
             respondentId: respondent.id,
             to: respondent.email,
             magicLinkToken: magicLinkCredential.rawCredential,
-            ...(input.includeRawCredentials ? { accessCode: respondent.identifier } : {}),
+            accessCode: respondent.identifier,
             expiresAt: magicLinkCredential.expiresAt
           });
         }

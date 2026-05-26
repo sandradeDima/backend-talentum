@@ -58,11 +58,6 @@ export class MailService {
     return { resetUrl };
   }
 
-  private buildSurveyMagicLinkUrl(campaignSlug: string, rawCredential: string) {
-    const basePath = `${env.FRONTEND_URL}/survey/${campaignSlug}`;
-    return `${basePath}?token=${encodeURIComponent(rawCredential)}`;
-  }
-
   private buildSurveyAccessCodeUrl(campaignSlug: string) {
     return `${env.FRONTEND_URL}/survey/${campaignSlug}/codigo`;
   }
@@ -73,25 +68,16 @@ export class MailService {
     campaignName: string;
     campaignSlug: string;
     magicLinkToken: string;
-    accessCode?: string;
+    accessCode: string;
     expiresAt: Date;
   }) {
-    const magicLinkUrl = this.buildSurveyMagicLinkUrl(
-      input.campaignSlug,
-      input.magicLinkToken
-    );
+    const accessCodeUrl = this.buildSurveyAccessCodeUrl(input.campaignSlug);
 
     const template = buildSurveyInvitationEmail({
       companyName: input.companyName,
       campaignName: input.campaignName,
-      magicLinkUrl,
-      ...(input.accessCode
-        ? {
-            accessCodeUrl: this.buildSurveyAccessCodeUrl(input.campaignSlug),
-            accessCode: input.accessCode
-          }
-        : {}),
-      expiresAt: input.expiresAt
+      accessCodeUrl,
+      accessCode: input.accessCode
     });
 
     await mailer.sendMail({
@@ -102,12 +88,7 @@ export class MailService {
       html: template.html
     });
 
-    return {
-      magicLinkUrl,
-      ...(input.accessCode
-        ? { accessCodeUrl: this.buildSurveyAccessCodeUrl(input.campaignSlug) }
-        : {})
-    };
+    return { accessCodeUrl };
   }
 
   async sendSurveyReminderEmail(input: {
@@ -119,19 +100,13 @@ export class MailService {
     accessCode: string;
     expiresAt: Date;
   }) {
-    const magicLinkUrl = this.buildSurveyMagicLinkUrl(
-      input.campaignSlug,
-      input.magicLinkToken
-    );
     const accessCodeUrl = this.buildSurveyAccessCodeUrl(input.campaignSlug);
 
     const template = buildSurveyReminderEmail({
       companyName: input.companyName,
       campaignName: input.campaignName,
-      magicLinkUrl,
       accessCodeUrl,
-      accessCode: input.accessCode,
-      expiresAt: input.expiresAt
+      accessCode: input.accessCode
     });
 
     await mailer.sendMail({
@@ -142,6 +117,6 @@ export class MailService {
       html: template.html
     });
 
-    return { magicLinkUrl, accessCodeUrl };
+    return { accessCodeUrl };
   }
 }

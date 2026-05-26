@@ -18,7 +18,7 @@ export const importSurveyRespondentsDtoSchema = z
     credentialType: z
       .nativeEnum(RespondentCredentialType)
       .optional()
-      .default(RespondentCredentialType.TOKEN),
+      .default(RespondentCredentialType.PIN),
     credentialExpiresAt: z.string().trim().min(1).optional(),
     regenerateCredentials: z.boolean().optional().default(false),
     sendInvitations: z.boolean().optional().default(false),
@@ -39,7 +39,7 @@ export const generateRespondentCredentialsDtoSchema = z.object({
   credentialType: z
     .nativeEnum(RespondentCredentialType)
     .optional()
-    .default(RespondentCredentialType.TOKEN),
+    .default(RespondentCredentialType.PIN),
   credentialExpiresAt: z.string().trim().min(1).optional(),
   regenerateCredentials: z.boolean().optional().default(true),
   sendInvitations: z.boolean().optional().default(false),
