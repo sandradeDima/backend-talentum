@@ -8,6 +8,7 @@ import type {
 } from '../dto/company-user.dto';
 import { AppError } from '../errors/appError';
 import { prisma } from '../lib/prisma';
+import { logger } from '../lib/logger';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
 import { CompanyRepository } from '../repositories/company.repository';
 import { InvitationRepository } from '../repositories/invitation.repository';
@@ -17,6 +18,7 @@ import {
   UserRepository
 } from '../repositories/user.repository';
 import type { SessionPrincipal } from '../types/auth';
+import { buildTechnicalMessage } from '../utils/errorDetails';
 import { randomToken, sha256 } from '../utils/hash';
 import { normalizeSlug } from '../utils/slug';
 import { MailService } from './mail.service';
@@ -28,6 +30,11 @@ const CLIENT_ADMIN_ROLE = Role.CLIENT_ADMIN;
 const buildFullName = (user: { name: string; lastName: string | null }) => {
   const parts = [user.name, user.lastName ?? ''].map((value) => value.trim()).filter(Boolean);
   return parts.join(' ');
+};
+
+type EmailDeliveryResult = {
+  sent: boolean;
+  message: string | null;
 };
 
 export class CompanyUserService {
@@ -178,6 +185,44 @@ export class CompanyUserService {
       rawToken,
       invitation
     };
+  }
+
+  private async sendInvitationEmailWithStatus(input: {
+    to: string;
+    companyName: string;
+    rawToken: string;
+    expiresAt: Date;
+    context: 'company_user_created' | 'company_user_invitation_resent';
+    companyId: string;
+    actorUserId: string;
+  }): Promise<EmailDeliveryResult> {
+    try {
+      await this.mailService.sendInvitationEmail({
+        to: input.to,
+        companyName: input.companyName,
+        rawToken: input.rawToken,
+        expiresAt: input.expiresAt
+      });
+
+      return {
+        sent: true,
+        message: null
+      };
+    } catch (error) {
+      logger.error('company_user_invitation_email_failed', {
+        context: input.context,
+        companyId: input.companyId,
+        actorUserId: input.actorUserId,
+        email: input.to,
+        technicalMessage: buildTechnicalMessage(error)
+      });
+
+      return {
+        sent: false,
+        message:
+          'El usuario fue creado, pero no se pudo enviar la invitación por correo. Revisa la configuración SMTP y usa "Reenviar invitación" después de corregirla.'
+      };
+    }
   }
 
   async listByCompanySlug(companySlug: string, principal: SessionPrincipal) {
@@ -334,11 +379,14 @@ export class CompanyUserService {
       };
     });
 
-    await this.mailService.sendInvitationEmail({
+    const emailDelivery = await this.sendInvitationEmailWithStatus({
       to: normalizedEmail,
       companyName: company.name,
       rawToken: transactionResult.rawToken,
-      expiresAt: transactionResult.invitation.expiresAt
+      expiresAt: transactionResult.invitation.expiresAt,
+      context: 'company_user_created',
+      companyId: company.id,
+      actorUserId: principal.id
     });
 
     return {
@@ -347,7 +395,8 @@ export class CompanyUserService {
         id: transactionResult.invitation.id,
         email: transactionResult.invitation.email,
         expiresAt: transactionResult.invitation.expiresAt
-      }
+      },
+      emailDelivery
     };
   }
 
@@ -487,17 +536,21 @@ export class CompanyUserService {
       return created;
     });
 
-    await this.mailService.sendInvitationEmail({
+    const emailDelivery = await this.sendInvitationEmailWithStatus({
       to: user.email,
       companyName: company.name,
       rawToken: inviteData.rawToken,
-      expiresAt: inviteData.invitation.expiresAt
+      expiresAt: inviteData.invitation.expiresAt,
+      context: 'company_user_invitation_resent',
+      companyId: company.id,
+      actorUserId: principal.id
     });
 
     return {
       invitationId: inviteData.invitation.id,
       email: user.email,
-      expiresAt: inviteData.invitation.expiresAt
+      expiresAt: inviteData.invitation.expiresAt,
+      emailDelivery
     };
   }
 

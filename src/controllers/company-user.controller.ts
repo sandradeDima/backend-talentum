@@ -50,7 +50,16 @@ export class CompanyUserController {
     const input = validateCreateCompanyUser(req.body);
     const result = await companyUserService.createCompanyUser(companySlug, input, req.authSession.user);
 
-    res.status(201).json(successResponse('Usuario creado e invitación enviada', result));
+    res
+      .status(201)
+      .json(
+        successResponse(
+          result.emailDelivery.sent
+            ? 'Usuario creado e invitación enviada'
+            : 'Usuario creado, pero no se pudo enviar la invitación por correo',
+          result
+        )
+      );
   }
 
   async update(req: Request, res: Response) {
@@ -100,7 +109,16 @@ export class CompanyUserController {
       req.authSession.user
     );
 
-    res.status(200).json(successResponse('Correo de reseteo enviado', result));
+    res
+      .status(200)
+      .json(
+        successResponse(
+          result.emailDelivery.sent
+            ? 'Correo de reseteo enviado'
+            : 'Reseteo generado, pero no se pudo enviar el correo',
+          result
+        )
+      );
   }
 
   async resendInvite(req: Request, res: Response) {
@@ -116,7 +134,16 @@ export class CompanyUserController {
       req.authSession.user
     );
 
-    res.status(200).json(successResponse('Invitación reenviada', result));
+    res
+      .status(200)
+      .json(
+        successResponse(
+          result.emailDelivery.sent
+            ? 'Invitación reenviada'
+            : 'Invitación regenerada, pero no se pudo enviar el correo',
+          result
+        )
+      );
   }
 }
 

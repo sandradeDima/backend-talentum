@@ -1,38 +1,45 @@
 import { z } from 'zod';
 
-const nullableUrlSchema = z
-  .string()
-  .trim()
-  .optional()
-  .transform((value, ctx) => {
-    if (!value) return null;
-    try {
-      return new URL(value).toString();
-    } catch {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'URL inválida' });
-      return z.NEVER;
-    }
-  });
+const normalizeOptionalTextInput = (value: unknown) => {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
 
-const nullableStringSchema = z
-  .string()
-  .trim()
-  .optional()
-  .transform((value) => (value && value.length > 0 ? value : null));
+  if (typeof value === 'string') {
+    return value.trim();
+  }
 
-const nullableEmailSchema = z
-  .string()
-  .trim()
-  .optional()
-  .transform((value, ctx) => {
-    if (!value) return null;
-    const parsed = z.string().email().safeParse(value);
-    if (!parsed.success) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Correo inválido' });
-      return z.NEVER;
-    }
-    return value.toLowerCase();
-  });
+  return value;
+};
+
+const optionalTrimmedStringSchema = z.preprocess(
+  normalizeOptionalTextInput,
+  z.string().optional()
+);
+
+const nullableUrlSchema = optionalTrimmedStringSchema.transform((value, ctx) => {
+  if (!value) return null;
+  try {
+    return new URL(value).toString();
+  } catch {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'URL inválida' });
+    return z.NEVER;
+  }
+});
+
+const nullableStringSchema = optionalTrimmedStringSchema.transform((value) =>
+  value && value.length > 0 ? value : null
+);
+
+const nullableEmailSchema = optionalTrimmedStringSchema.transform((value, ctx) => {
+  if (!value) return null;
+  const parsed = z.string().email().safeParse(value);
+  if (!parsed.success) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Correo inválido' });
+    return z.NEVER;
+  }
+  return value.toLowerCase();
+});
 
 export const upsertCoolturaConfigDtoSchema = z.object({
   linkedinUrl: nullableUrlSchema,

@@ -3,10 +3,12 @@ import { env } from '../config/env';
 import type { ConfirmPasswordResetDto } from '../dto/password-reset.dto';
 import { AppError } from '../errors/appError';
 import { hashPassword } from '../lib/auth';
+import { logger } from '../lib/logger';
 import { prisma } from '../lib/prisma';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
 import { PasswordResetTokenRepository } from '../repositories/password-reset-token.repository';
 import { UserRepository } from '../repositories/user.repository';
+import { buildTechnicalMessage } from '../utils/errorDetails';
 import { randomToken, sha256 } from '../utils/hash';
 import { MailService } from './mail.service';
 
@@ -21,6 +23,44 @@ export class PasswordResetService {
   private buildResetExpirationDate(): Date {
     const hours = env.PASSWORD_RESET_TOKEN_EXPIRES_HOURS;
     return new Date(Date.now() + hours * 60 * 60 * 1000);
+  }
+
+  private async sendResetEmailWithStatus(input: {
+    to: string;
+    userName: string;
+    companyName: string;
+    rawToken: string;
+    expiresAt: Date;
+    actorUserId: string;
+    companyId: string | null;
+  }) {
+    try {
+      await this.mailService.sendPasswordResetEmail({
+        to: input.to,
+        userName: input.userName,
+        companyName: input.companyName,
+        rawToken: input.rawToken,
+        expiresAt: input.expiresAt
+      });
+
+      return {
+        sent: true,
+        message: null
+      };
+    } catch (error) {
+      logger.error('company_user_password_reset_email_failed', {
+        actorUserId: input.actorUserId,
+        companyId: input.companyId,
+        email: input.to,
+        technicalMessage: buildTechnicalMessage(error)
+      });
+
+      return {
+        sent: false,
+        message:
+          'Se generó el reseteo de contraseña, pero no se pudo enviar el correo. Revisa la configuración SMTP e inténtalo nuevamente.'
+      };
+    }
   }
 
   private assertResetTokenIsUsable(
@@ -103,17 +143,20 @@ export class PasswordResetService {
       );
     });
 
-    await this.mailService.sendPasswordResetEmail({
+    const emailDelivery = await this.sendResetEmailWithStatus({
       to: user.email,
       userName: user.name,
       companyName: user.company?.name ?? 'Talentum',
       rawToken,
-      expiresAt
+      expiresAt,
+      actorUserId: input.actorUserId,
+      companyId: user.companyId ?? null
     });
 
     return {
       email: user.email,
-      expiresAt
+      expiresAt,
+      emailDelivery
     };
   }
 
