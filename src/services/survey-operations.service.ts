@@ -15,6 +15,7 @@ import type {
   ImportSurveyRespondentsDto
 } from '../dto/survey-operations.dto';
 import { AppError } from '../errors/appError';
+import { parseBoliviaDateTimeInput } from '../lib/bolivia-time';
 import { logger } from '../lib/logger';
 import { prisma } from '../lib/prisma';
 import { assertPrincipalRole, rolePolicy } from '../lib/role-policy';
@@ -173,25 +174,7 @@ const isValidEmail = (value: string): boolean => {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 };
 
-const parseDateTimeInput = (input: string): Date => {
-  const localDateTimePattern = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/;
-  const localMatch = input.match(localDateTimePattern);
-
-  if (localMatch) {
-    const [, year, month, day, hour, minute] = localMatch;
-    return new Date(
-      Number(year),
-      Number(month) - 1,
-      Number(day),
-      Number(hour),
-      Number(minute),
-      0,
-      0
-    );
-  }
-
-  return new Date(input);
-};
+const parseDateTimeInput = (input: string): Date => parseBoliviaDateTimeInput(input);
 
 const sanitizeErrorMessage = (error: unknown): string => {
   if (error instanceof Error) {

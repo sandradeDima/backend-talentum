@@ -6,6 +6,10 @@ import {
   type SurveyTemplateKey
 } from '@prisma/client';
 import { AppError } from '../errors/appError';
+import {
+  parseBoliviaDateOnly,
+  parseBoliviaDateTimeInput
+} from '../lib/bolivia-time';
 import { deriveSurveyLifecycle, type SurveyLifecycle } from '../lib/survey-lifecycle';
 import { prisma } from '../lib/prisma';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
@@ -115,81 +119,18 @@ type GlobalSurveySummaryResponse = SurveySummaryResponse & {
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
-const isExactDateMatch = (
-  date: Date,
-  input: {
-    year: number;
-    month: number;
-    day: number;
-    hour?: number;
-    minute?: number;
-  }
-) => {
-  if (Number.isNaN(date.getTime())) {
-    return false;
-  }
-
-  return (
-    date.getFullYear() === input.year &&
-    date.getMonth() === input.month - 1 &&
-    date.getDate() === input.day &&
-    (typeof input.hour === 'number' ? date.getHours() === input.hour : true) &&
-    (typeof input.minute === 'number' ? date.getMinutes() === input.minute : true)
-  );
-};
-
 const parseDateOnly = (input: string, mode: 'start' | 'end'): Date => {
-  const [yearRaw, monthRaw, dayRaw] = input.split('-').map(Number);
+  const value = parseBoliviaDateOnly(input, mode);
 
-  if (!yearRaw || !monthRaw || !dayRaw) {
+  if (!value) {
     throw new AppError('Fecha inválida', 400, 'INVALID_SURVEY_DATE');
   }
 
-  const date =
-    mode === 'start'
-      ? new Date(yearRaw, monthRaw - 1, dayRaw, 0, 1, 0, 0)
-      : new Date(yearRaw, monthRaw - 1, dayRaw, 23, 59, 0, 0);
-
-  if (!isExactDateMatch(date, { year: yearRaw, month: monthRaw, day: dayRaw })) {
-    throw new AppError('Fecha inválida', 400, 'INVALID_SURVEY_DATE');
-  }
-
-  return date;
+  return value;
 };
 
 const parseDateTimeInput = (input: string): Date => {
-  const localDateTimePattern = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/;
-  const localMatch = input.match(localDateTimePattern);
-
-  if (localMatch) {
-    const [, year, month, day, hour, minute] = localMatch;
-    const parsed = new Date(
-      Number(year),
-      Number(month) - 1,
-      Number(day),
-      Number(hour),
-      Number(minute),
-      0,
-      0
-    );
-
-    if (
-      !isExactDateMatch(parsed, {
-        year: Number(year),
-        month: Number(month),
-        day: Number(day),
-        hour: Number(hour),
-        minute: Number(minute)
-      })
-    ) {
-      return new Date(Number.NaN);
-    }
-
-    return parsed;
-  }
-
-  const parsed = new Date(input);
-  return parsed;
+  return parseBoliviaDateTimeInput(input);
 };
 
 const normalizeOptionalQuestion = (value: string | null | undefined): string | null => {
@@ -486,7 +427,13 @@ export class SurveyService {
   }
 
   private ensureSurveyEditable(campaign: SurveyCampaignDetailRow) {
-    if (Date.now() >= campaign.startDate.getTime()) {
+    const lifecycle = deriveSurveyLifecycle(campaign);
+
+    if (lifecycle.state === 'DRAFT') {
+      return;
+    }
+
+    if (lifecycle.state === 'FINALIZED' || Date.now() >= campaign.startDate.getTime()) {
       throw new AppError(
         'La encuesta ya inició y no admite más cambios de configuración',
         409,
