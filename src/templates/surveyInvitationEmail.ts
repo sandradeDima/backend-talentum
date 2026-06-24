@@ -15,7 +15,7 @@ export const buildSurveyInvitationEmail = (params: {
       '',
       'Tu participación es muy importante en este proceso. Te invitamos a hacer clic en el enlace para empezar.',
       '',
-      `Código de acceso: ${params.accessCode}`,
+      `Número de documento: ${params.accessCode}`,
       `Ingresar aqui: ${params.accessCodeUrl}`
     ].join('\n'),
     html: `
@@ -28,7 +28,7 @@ export const buildSurveyInvitationEmail = (params: {
         <p>
           Tu participación es muy importante en este proceso. Te invitamos a hacer clic en el enlace para empezar.
         </p>
-        <p><strong>Código de acceso</strong>: ${params.accessCode}</p>
+        <p><strong>Número de documento</strong>: ${params.accessCode}</p>
         <p>
           <a href="${params.accessCodeUrl}" style="display:inline-block;padding:10px 16px;background:#1b8f6a;color:white;text-decoration:none;border-radius:6px">
             Ingresar aqui

@@ -44,6 +44,15 @@ const envSchema = z.object({
   WORKER_TICK_RETRY_ATTEMPTS: z.coerce.number().int().positive().max(10).default(3),
   WORKER_TICK_RETRY_DELAY_MS: z.coerce.number().int().positive().default(500),
   SURVEY_INVITATION_EMAIL_CONCURRENCY: z.coerce.number().int().positive().max(50).default(5),
+  INITIAL_SEND_WORKER_ENABLED: z
+    .string()
+    .optional()
+    .transform((value) => value === 'true'),
+  INITIAL_SEND_WORKER_INTERVAL_SECONDS: z.coerce.number().int().positive().default(60),
+  INITIAL_SEND_BATCH_SIZE: z.coerce.number().int().positive().max(100).default(10),
+  INITIAL_SEND_MAX_RETRIES: z.coerce.number().int().positive().max(20).default(3),
+  INITIAL_SEND_DISPATCH_MAX_RETRIES: z.coerce.number().int().positive().max(20).default(3),
+  INITIAL_SEND_RETRY_DELAY_SECONDS: z.coerce.number().int().positive().default(300),
   REMINDER_WORKER_ENABLED: z
     .string()
     .optional()

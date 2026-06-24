@@ -1,10 +1,33 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 
-const REQUIRED_TABLES = ['DashboardExportJob'] as const;
+const REQUIRED_TABLES = ['DashboardExportJob', 'InitialInvitationDispatch'] as const;
 
 const REQUIRED_COLUMNS_BY_TABLE: Record<string, readonly string[]> = {
+  SurveyCampaign: [
+    'initialSendStatus',
+    'initialSendAttemptCount',
+    'initialSendLastAttemptAt',
+    'initialSendProcessedAt',
+    'initialSendNextRetryAt',
+    'initialSendLockToken',
+    'initialSendErrorMessage'
+  ],
   Respondent: ['gerencia', 'centro'],
+  InitialInvitationDispatch: [
+    'id',
+    'surveyCampaignId',
+    'respondentId',
+    'accessCredentialId',
+    'status',
+    'idempotencyKey',
+    'attemptCount',
+    'sentAt',
+    'lastAttemptAt',
+    'errorMessage',
+    'createdAt',
+    'updatedAt'
+  ],
   DashboardExportJob: [
     'id',
     'surveyCampaignId',
@@ -34,6 +57,17 @@ const REQUIRED_INDEXES_BY_TABLE: Record<string, readonly string[]> = {
     'SurveyResponse_surveyCampaignId_submittedAt_idx'
   ],
   SurveyAnswer: ['SurveyAnswer_surveyCampaignId_questionKey_idx'],
+  SurveyCampaign: [
+    'SurveyCampaign_initialSendScheduledAt_initialSendStatus_idx',
+    'SurveyCampaign_initialSendNextRetryAt_idx'
+  ],
+  InitialInvitationDispatch: [
+    'InitialInvitationDispatch_idempotencyKey_key',
+    'InitialInvitationDispatch_surveyCampaignId_status_idx',
+    'InitialInvitationDispatch_respondentId_idx',
+    'InitialInvitationDispatch_accessCredentialId_idx',
+    'InitialInvitationDispatch_surveyCampaignId_respondentId_key'
+  ],
   DashboardExportJob: [
     'DashboardExportJob_surveyCampaignId_status_idx',
     'DashboardExportJob_requestedByUserId_createdAt_idx',

@@ -4,6 +4,7 @@ import { logger } from './lib/logger';
 import { prisma } from './lib/prisma';
 import { assertDatabaseSchemaContract } from './services/database-contract.service';
 import { startDashboardExportWorker } from './workers/dashboard-export.worker';
+import { startInitialSendWorker } from './workers/initial-send.worker';
 import { startReminderWorker } from './workers/reminder.worker';
 
 const startServer = async () => {
@@ -21,6 +22,7 @@ const startServer = async () => {
     });
   });
 
+  const initialSendWorker = startInitialSendWorker();
   const reminderWorker = startReminderWorker();
   const dashboardExportWorker = startDashboardExportWorker();
   let shuttingDown = false;
@@ -32,6 +34,7 @@ const startServer = async () => {
 
     shuttingDown = true;
     logger.info('backend_server_shutdown_requested');
+    initialSendWorker.stop();
     reminderWorker.stop();
     dashboardExportWorker.stop();
     server.close(() => {

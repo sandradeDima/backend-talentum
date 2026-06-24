@@ -53,6 +53,13 @@ enum ReminderScheduleStatus {
   FAILED
 }
 
+enum InitialSendStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
 enum ReminderDispatchStatus {
   PENDING
   SENT
@@ -357,6 +364,13 @@ model SurveyCampaign {
   startDate              DateTime
   endDate                DateTime
   initialSendScheduledAt DateTime?
+  initialSendStatus      InitialSendStatus?
+  initialSendAttemptCount Int                 @default(0)
+  initialSendLastAttemptAt DateTime?
+  initialSendProcessedAt DateTime?
+  initialSendNextRetryAt DateTime?
+  initialSendLockToken   String?
+  initialSendErrorMessage String?             @db.Text
   remindersLockedAt      DateTime?
   finalizedAt            DateTime?
 
@@ -381,6 +395,7 @@ model SurveyCampaign {
   reminders SurveyReminder[]
   respondents Respondent[]
   accessCredentials RespondentAccessCredential[]
+  initialInvitationDispatches InitialInvitationDispatch[]
   responses SurveyResponse[]
   answers SurveyAnswer[]
   reminderSchedules ReminderSchedule[]
@@ -392,6 +407,8 @@ model SurveyCampaign {
   @@index([createdByAdminId])
   @@index([startDate])
   @@index([endDate])
+  @@index([initialSendScheduledAt, initialSendStatus])
+  @@index([initialSendNextRetryAt])
   @@index([finalizedAt])
 }
 
@@ -425,6 +442,7 @@ model Respondent {
   updatedAt        DateTime @updatedAt
 
   accessCredentials RespondentAccessCredential[]
+  initialInvitationDispatches InitialInvitationDispatch[]
   response         SurveyResponse?
   reminderDispatches ReminderDispatch[]
 
@@ -454,6 +472,7 @@ model RespondentAccessCredential {
   updatedAt        DateTime                @updatedAt
 
   responses SurveyResponse[]
+  initialInvitationDispatches InitialInvitationDispatch[]
   reminderDispatches ReminderDispatch[]
 
   @@index([respondentId])
@@ -508,6 +527,29 @@ model SurveyAnswer {
   @@index([surveyCampaignId])
   @@index([surveyCampaignId, questionKey])
   @@index([sectionKey])
+}
+
+model InitialInvitationDispatch {
+  id                 String                 @id @default(cuid())
+  surveyCampaignId   String
+  surveyCampaign     SurveyCampaign         @relation(fields: [surveyCampaignId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  respondentId       String
+  respondent         Respondent             @relation(fields: [respondentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  accessCredentialId String?
+  accessCredential   RespondentAccessCredential? @relation(fields: [accessCredentialId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  status             ReminderDispatchStatus @default(PENDING)
+  idempotencyKey     String                 @unique
+  attemptCount       Int                    @default(0)
+  sentAt             DateTime?
+  lastAttemptAt      DateTime?
+  errorMessage       String?                @db.Text
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  @@index([surveyCampaignId, status])
+  @@index([respondentId])
+  @@index([accessCredentialId])
+  @@unique([surveyCampaignId, respondentId])
 }
 
 model ReminderSchedule {

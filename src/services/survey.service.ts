@@ -1,4 +1,5 @@
 import {
+  InitialSendStatus,
   ReminderDispatchStatus,
   ReminderScheduleStatus,
   Role,
@@ -43,6 +44,12 @@ type SurveyDetailResponse = {
   endDate: Date;
   totalEnabledDays: number;
   initialSendScheduledAt: Date | null;
+  initialSendStatus: InitialSendStatus | null;
+  initialSendAttemptCount: number;
+  initialSendLastAttemptAt: Date | null;
+  initialSendProcessedAt: Date | null;
+  initialSendNextRetryAt: Date | null;
+  initialSendErrorMessage: string | null;
   remindersLockedAt: Date | null;
   remindersLocked: boolean;
   finalizedAt: Date | null;
@@ -100,6 +107,12 @@ type SurveySummaryResponse = {
   endDate: Date;
   totalEnabledDays: number;
   initialSendScheduledAt: Date | null;
+  initialSendStatus: InitialSendStatus | null;
+  initialSendAttemptCount: number;
+  initialSendLastAttemptAt: Date | null;
+  initialSendProcessedAt: Date | null;
+  initialSendNextRetryAt: Date | null;
+  initialSendErrorMessage: string | null;
   remindersLockedAt: Date | null;
   remindersLocked: boolean;
   finalizedAt: Date | null;
@@ -274,6 +287,12 @@ export class SurveyService {
       endDate: row.endDate,
       totalEnabledDays: calculateTotalEnabledDays(row.startDate, row.endDate),
       initialSendScheduledAt: row.initialSendScheduledAt,
+      initialSendStatus: row.initialSendStatus,
+      initialSendAttemptCount: row.initialSendAttemptCount,
+      initialSendLastAttemptAt: row.initialSendLastAttemptAt,
+      initialSendProcessedAt: row.initialSendProcessedAt,
+      initialSendNextRetryAt: row.initialSendNextRetryAt,
+      initialSendErrorMessage: row.initialSendErrorMessage,
       remindersLockedAt: row.remindersLockedAt,
       remindersLocked: Boolean(row.remindersLockedAt),
       finalizedAt: row.finalizedAt,
@@ -632,6 +651,17 @@ export class SurveyService {
           startDate: nextStartDate,
           endDate: nextEndDate,
           initialSendScheduledAt: nextInitialSendScheduledAt,
+          ...(initialSendInvalidated
+            ? {
+                initialSendStatus: null,
+                initialSendAttemptCount: 0,
+                initialSendLastAttemptAt: null,
+                initialSendProcessedAt: null,
+                initialSendNextRetryAt: null,
+                initialSendLockToken: null,
+                initialSendErrorMessage: null
+              }
+            : {}),
           introGeneral: input.introGeneral.trim(),
           leaderIntro: input.leaderIntro.trim(),
           leaderQuestions: input.leaderQuestions.map((question) => question.trim()),
@@ -746,6 +776,13 @@ export class SurveyService {
         campaign.id,
         {
           initialSendScheduledAt: scheduledAt,
+          initialSendStatus: InitialSendStatus.PENDING,
+          initialSendAttemptCount: 0,
+          initialSendLastAttemptAt: null,
+          initialSendProcessedAt: null,
+          initialSendNextRetryAt: null,
+          initialSendLockToken: null,
+          initialSendErrorMessage: null,
           status: SurveyCampaignStatus.CREADA
         },
         tx

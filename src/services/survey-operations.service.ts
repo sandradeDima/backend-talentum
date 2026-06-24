@@ -1,4 +1,5 @@
 import {
+  InitialSendStatus,
   Prisma,
   ReminderDispatchStatus,
   ReminderScheduleStatus,
@@ -26,6 +27,9 @@ import { MailService } from './mail.service';
 import { retryQueueService } from './retry-queue.service';
 
 const DEFAULT_CSV_DELIMITER = ',';
+const INITIAL_SEND_MAX_RETRIES = env.INITIAL_SEND_MAX_RETRIES;
+const INITIAL_SEND_DISPATCH_MAX_RETRIES = env.INITIAL_SEND_DISPATCH_MAX_RETRIES;
+const INITIAL_SEND_RETRY_DELAY_SECONDS = env.INITIAL_SEND_RETRY_DELAY_SECONDS;
 const REMINDER_MAX_RETRIES = env.REMINDER_MAX_RETRIES;
 const REMINDER_DISPATCH_MAX_RETRIES = env.REMINDER_DISPATCH_MAX_RETRIES;
 const REMINDER_RETRY_DELAY_SECONDS = env.REMINDER_RETRY_DELAY_SECONDS;
@@ -96,6 +100,9 @@ type CampaignScope = {
     status: SurveyCampaignStatus;
     startDate: Date;
     endDate: Date;
+    initialSendScheduledAt: Date | null;
+    initialSendStatus: InitialSendStatus | null;
+    initialSendAttemptCount: number;
   };
 };
 
@@ -141,6 +148,15 @@ type SurveyOperationsSummaryResponse = {
       PIN: number;
     };
     latestIssuedAt: Date | null;
+  };
+  initialSend: {
+    scheduledAt: Date | null;
+    status: InitialSendStatus | null;
+    attemptCount: number;
+    lastAttemptAt: Date | null;
+    processedAt: Date | null;
+    nextRetryAt: Date | null;
+    errorMessage: string | null;
   };
   reminders: {
     totalSchedules: number;
@@ -511,7 +527,10 @@ export class SurveyOperationsService {
           name: true,
           status: true,
           startDate: true,
-          endDate: true
+          endDate: true,
+          initialSendScheduledAt: true,
+          initialSendStatus: true,
+          initialSendAttemptCount: true
         }
       });
 
@@ -835,6 +854,484 @@ export class SurveyOperationsService {
     };
   }
 
+  private async dispatchInitialInvitationToRespondent(input: {
+    surveyCampaignId: string;
+    campaignSlug: string;
+    campaignName: string;
+    campaignEndDate: Date;
+    companyName: string;
+    respondent: {
+      id: string;
+      identifier: string | null;
+      email: string | null;
+    };
+  }) {
+    const now = new Date();
+    const idempotencyKey = sha256(
+      `initial-invitation:${input.surveyCampaignId}:${input.respondent.id}`
+    );
+
+    const dispatch = await prisma.initialInvitationDispatch.upsert({
+      where: {
+        surveyCampaignId_respondentId: {
+          surveyCampaignId: input.surveyCampaignId,
+          respondentId: input.respondent.id
+        }
+      },
+      update: {},
+      create: {
+        surveyCampaignId: input.surveyCampaignId,
+        respondentId: input.respondent.id,
+        idempotencyKey,
+        status: ReminderDispatchStatus.PENDING
+      }
+    });
+
+    if (
+      dispatch.status === ReminderDispatchStatus.SENT ||
+      dispatch.status === ReminderDispatchStatus.SKIPPED
+    ) {
+      return {
+        status: dispatch.status
+      };
+    }
+
+    if (dispatch.attemptCount >= INITIAL_SEND_DISPATCH_MAX_RETRIES) {
+      return {
+        status: ReminderDispatchStatus.FAILED
+      };
+    }
+
+    if (!input.respondent.email) {
+      await prisma.initialInvitationDispatch.update({
+        where: {
+          id: dispatch.id
+        },
+        data: {
+          status: ReminderDispatchStatus.SKIPPED,
+          attemptCount: {
+            increment: 1
+          },
+          lastAttemptAt: now,
+          errorMessage: 'Respondent without email'
+        }
+      });
+
+      return {
+        status: ReminderDispatchStatus.SKIPPED
+      };
+    }
+
+    if (!input.respondent.identifier) {
+      await prisma.initialInvitationDispatch.update({
+        where: {
+          id: dispatch.id
+        },
+        data: {
+          status: ReminderDispatchStatus.SKIPPED,
+          attemptCount: {
+            increment: 1
+          },
+          lastAttemptAt: now,
+          errorMessage: 'Respondent without identifier'
+        }
+      });
+
+      return {
+        status: ReminderDispatchStatus.SKIPPED
+      };
+    }
+
+    const expiresAt = new Date(
+      Math.min(
+        input.campaignEndDate.getTime(),
+        Date.now() + env.SURVEY_ACCESS_CREDENTIAL_EXPIRES_HOURS * 60 * 60 * 1000
+      )
+    );
+
+    const issuedCredential = await prisma.$transaction(async (tx) => {
+      const credential = await this.issueCredentialTx(tx, {
+        respondentId: input.respondent.id,
+        surveyCampaignId: input.surveyCampaignId,
+        credentialType: RespondentCredentialType.TOKEN,
+        expiresAt,
+        regenerate: true
+      });
+
+      await tx.initialInvitationDispatch.update({
+        where: {
+          id: dispatch.id
+        },
+        data: {
+          status: ReminderDispatchStatus.PENDING,
+          attemptCount: {
+            increment: 1
+          },
+          lastAttemptAt: now,
+          accessCredentialId: credential.credentialId,
+          errorMessage: null
+        }
+      });
+
+      return credential;
+    });
+
+    if (!issuedCredential.rawCredential) {
+      await prisma.initialInvitationDispatch.update({
+        where: {
+          id: dispatch.id
+        },
+        data: {
+          status: ReminderDispatchStatus.FAILED,
+          errorMessage: 'No raw credential available'
+        }
+      });
+
+      return {
+        status: ReminderDispatchStatus.FAILED
+      };
+    }
+
+    try {
+      await this.sendInvitationWithRetry({
+        respondentId: input.respondent.id,
+        to: input.respondent.email,
+        companyName: input.companyName,
+        campaignName: input.campaignName,
+        campaignSlug: input.campaignSlug,
+        magicLinkToken: issuedCredential.rawCredential,
+        accessCode: input.respondent.identifier,
+        expiresAt: issuedCredential.expiresAt
+      });
+
+      await prisma.initialInvitationDispatch.update({
+        where: {
+          id: dispatch.id
+        },
+        data: {
+          status: ReminderDispatchStatus.SENT,
+          sentAt: new Date(),
+          errorMessage: null
+        }
+      });
+
+      return {
+        status: ReminderDispatchStatus.SENT
+      };
+    } catch (error) {
+      await prisma.initialInvitationDispatch.update({
+        where: {
+          id: dispatch.id
+        },
+        data: {
+          status: ReminderDispatchStatus.FAILED,
+          errorMessage: sanitizeErrorMessage(error)
+        }
+      });
+
+      return {
+        status: ReminderDispatchStatus.FAILED
+      };
+    }
+  }
+
+  private async sendInitialInvitationsForCampaign(input: {
+    surveyCampaignId: string;
+    campaignSlug: string;
+    campaignName: string;
+    campaignEndDate: Date;
+    companyName: string;
+  }) {
+    const respondents = await prisma.respondent.findMany({
+      where: {
+        surveyCampaignId: input.surveyCampaignId,
+        isActive: true
+      },
+      select: {
+        id: true,
+        identifier: true,
+        email: true
+      }
+    });
+
+    let sent = 0;
+    let failed = 0;
+    let skipped = 0;
+
+    for (const respondent of respondents) {
+      const result = await this.dispatchInitialInvitationToRespondent({
+        ...input,
+        respondent
+      });
+
+      if (result.status === ReminderDispatchStatus.SENT) {
+        sent += 1;
+      } else if (result.status === ReminderDispatchStatus.SKIPPED) {
+        skipped += 1;
+      } else if (result.status === ReminderDispatchStatus.FAILED) {
+        failed += 1;
+      }
+    }
+
+    return {
+      summary: {
+        respondents: respondents.length,
+        invitationsSent: sent,
+        invitationFailures: failed,
+        invitationsSkipped: skipped
+      }
+    };
+  }
+
+  private async completeInitialSendCampaign(input: {
+    campaignId: string;
+    attemptCount: number;
+    failed: number;
+  }) {
+    const now = new Date();
+
+    if (input.failed > 0 && input.attemptCount < INITIAL_SEND_MAX_RETRIES) {
+      const retryAt = new Date(Date.now() + INITIAL_SEND_RETRY_DELAY_SECONDS * 1000);
+
+      await prisma.surveyCampaign.update({
+        where: {
+          id: input.campaignId
+        },
+        data: {
+          initialSendStatus: InitialSendStatus.FAILED,
+          initialSendNextRetryAt: retryAt,
+          initialSendLockToken: null,
+          initialSendErrorMessage: `${input.failed} initial invitation(s) failed`
+        }
+      });
+
+      return InitialSendStatus.FAILED;
+    }
+
+    const status =
+      input.failed > 0 ? InitialSendStatus.FAILED : InitialSendStatus.COMPLETED;
+
+    await prisma.surveyCampaign.update({
+      where: {
+        id: input.campaignId
+      },
+      data: {
+        initialSendStatus: status,
+        initialSendProcessedAt: now,
+        initialSendNextRetryAt: null,
+        initialSendLockToken: null,
+        initialSendErrorMessage:
+          input.failed > 0
+            ? `${input.failed} initial invitation(s) failed after retries`
+            : null
+      }
+    });
+
+    return status;
+  }
+
+  async processInitialSendCampaign(campaignId: string) {
+    const now = new Date();
+    const claimed = await prisma.surveyCampaign.updateMany({
+      where: {
+        id: campaignId,
+        initialSendScheduledAt: {
+          not: null
+        },
+        OR: [
+          {
+            initialSendStatus: null
+          },
+          {
+            initialSendStatus: InitialSendStatus.PENDING
+          },
+          {
+            initialSendStatus: InitialSendStatus.FAILED
+          }
+        ]
+      },
+      data: {
+        initialSendStatus: InitialSendStatus.PROCESSING,
+        initialSendAttemptCount: {
+          increment: 1
+        },
+        initialSendLastAttemptAt: now,
+        initialSendProcessedAt: null,
+        initialSendNextRetryAt: null,
+        initialSendLockToken: randomToken(12),
+        initialSendErrorMessage: null
+      }
+    });
+
+    if (claimed.count === 0) {
+      return {
+        campaignId,
+        claimed: false,
+        sent: 0,
+        failed: 0,
+        skipped: 0,
+        respondents: 0,
+        status: null as InitialSendStatus | null
+      };
+    }
+
+    const campaign = await prisma.surveyCampaign.findUnique({
+      where: {
+        id: campaignId
+      },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        status: true,
+        endDate: true,
+        initialSendAttemptCount: true,
+        company: {
+          select: {
+            name: true
+          }
+        }
+      }
+    });
+
+    if (!campaign) {
+      return {
+        campaignId,
+        claimed: false,
+        sent: 0,
+        failed: 0,
+        skipped: 0,
+        respondents: 0,
+        status: null as InitialSendStatus | null
+      };
+    }
+
+    if (
+      campaign.status === SurveyCampaignStatus.FINALIZADA ||
+      campaign.endDate.getTime() < Date.now()
+    ) {
+      await prisma.surveyCampaign.update({
+        where: {
+          id: campaign.id
+        },
+        data: {
+          initialSendStatus: InitialSendStatus.FAILED,
+          initialSendProcessedAt: new Date(),
+          initialSendNextRetryAt: null,
+          initialSendLockToken: null,
+          initialSendErrorMessage: 'Campaign finished before initial invitations were sent'
+        }
+      });
+
+      return {
+        campaignId: campaign.id,
+        claimed: true,
+        sent: 0,
+        failed: 1,
+        skipped: 0,
+        respondents: 0,
+        status: InitialSendStatus.FAILED
+      };
+    }
+
+    try {
+      const result = await this.sendInitialInvitationsForCampaign({
+        surveyCampaignId: campaign.id,
+        campaignSlug: campaign.slug,
+        campaignName: campaign.name,
+        campaignEndDate: campaign.endDate,
+        companyName: campaign.company.name
+      });
+
+      const status = await this.completeInitialSendCampaign({
+        campaignId: campaign.id,
+        attemptCount: campaign.initialSendAttemptCount,
+        failed: result.summary.invitationFailures
+      });
+
+      return {
+        campaignId: campaign.id,
+        claimed: true,
+        sent: result.summary.invitationsSent,
+        failed: result.summary.invitationFailures,
+        skipped: result.summary.invitationsSkipped,
+        respondents: result.summary.respondents,
+        status
+      };
+    } catch (error) {
+      const retryable = campaign.initialSendAttemptCount < INITIAL_SEND_MAX_RETRIES;
+      await prisma.surveyCampaign.update({
+        where: {
+          id: campaign.id
+        },
+        data: {
+          initialSendStatus: InitialSendStatus.FAILED,
+          initialSendProcessedAt: retryable ? null : new Date(),
+          initialSendNextRetryAt: retryable
+            ? new Date(Date.now() + INITIAL_SEND_RETRY_DELAY_SECONDS * 1000)
+            : null,
+          initialSendLockToken: null,
+          initialSendErrorMessage: sanitizeErrorMessage(error)
+        }
+      });
+
+      logger.error('initial_send_campaign_failed', {
+        campaignId: campaign.id,
+        error
+      });
+
+      return {
+        campaignId: campaign.id,
+        claimed: true,
+        sent: 0,
+        failed: 1,
+        skipped: 0,
+        respondents: 0,
+        status: InitialSendStatus.FAILED
+      };
+    }
+  }
+
+  async processDueInitialSendCampaigns(input: { limit: number }) {
+    const now = new Date();
+    const dueCampaigns = await prisma.surveyCampaign.findMany({
+      where: {
+        initialSendScheduledAt: {
+          lte: now
+        },
+        OR: [
+          {
+            initialSendStatus: InitialSendStatus.PENDING
+          },
+          {
+            initialSendStatus: InitialSendStatus.FAILED,
+            initialSendNextRetryAt: {
+              lte: now
+            }
+          }
+        ]
+      },
+      orderBy: {
+        initialSendScheduledAt: 'asc'
+      },
+      take: input.limit,
+      select: {
+        id: true
+      }
+    });
+
+    const results = [];
+    for (const campaign of dueCampaigns) {
+      const result = await this.processInitialSendCampaign(campaign.id);
+      results.push(result);
+    }
+
+    return {
+      processedCampaigns: results.filter((item) => item.claimed).length,
+      campaigns: results
+    };
+  }
+
   async importRespondents(
     companySlug: string,
     surveySlug: string,
@@ -1048,6 +1545,7 @@ export class SurveyOperationsService {
     const now = new Date();
 
     const [
+      initialSendState,
       totalRespondents,
       activeRespondents,
       respondentsWithEmail,
@@ -1064,6 +1562,20 @@ export class SurveyOperationsService {
       nextReminderSchedule,
       lastProcessedReminderSchedule
     ] = await Promise.all([
+      prisma.surveyCampaign.findUnique({
+        where: {
+          id: scope.campaign.id
+        },
+        select: {
+          initialSendScheduledAt: true,
+          initialSendStatus: true,
+          initialSendAttemptCount: true,
+          initialSendLastAttemptAt: true,
+          initialSendProcessedAt: true,
+          initialSendNextRetryAt: true,
+          initialSendErrorMessage: true
+        }
+      }),
       prisma.respondent.count({
         where: {
           surveyCampaignId: scope.campaign.id
@@ -1289,6 +1801,15 @@ export class SurveyOperationsService {
         byType: credentialsByType,
         latestIssuedAt: latestCredential?.createdAt ?? null
       },
+      initialSend: {
+        scheduledAt: initialSendState?.initialSendScheduledAt ?? null,
+        status: initialSendState?.initialSendStatus ?? null,
+        attemptCount: initialSendState?.initialSendAttemptCount ?? 0,
+        lastAttemptAt: initialSendState?.initialSendLastAttemptAt ?? null,
+        processedAt: initialSendState?.initialSendProcessedAt ?? null,
+        nextRetryAt: initialSendState?.initialSendNextRetryAt ?? null,
+        errorMessage: initialSendState?.initialSendErrorMessage ?? null
+      },
       reminders: {
         totalSchedules:
           reminderCounts.pending +
@@ -1449,79 +1970,55 @@ export class SurveyOperationsService {
     const scope = await this.resolveScope(companySlug, surveySlug, principal);
     this.assertCampaignIsOpen(scope.campaign);
 
-    const expiresAt = this.getCredentialExpiry(scope.campaign);
-
-    const respondents = await prisma.respondent.findMany({
-      where: {
-        surveyCampaignId: scope.campaign.id,
-        isActive: true,
-        email: { not: null }
-      },
-      select: {
-        id: true,
-        identifier: true,
-        email: true
-      }
-    });
-
-    if (respondents.length === 0) {
-      return {
-        summary: {
-          respondents: 0,
-          invitationsSent: 0,
-          invitationFailures: 0
-        }
-      };
+    if (!scope.campaign.initialSendScheduledAt) {
+      throw new AppError(
+        'Debes programar el envío inicial antes de enviar invitaciones',
+        409,
+        'SURVEY_INITIAL_SEND_REQUIRED'
+      );
     }
 
-    const credentialsForEmail: Array<{
-      respondentId: string;
-      to: string;
-      magicLinkToken: string;
-      accessCode: string;
-      expiresAt: Date;
-    }> = [];
+    const result = await this.processInitialSendCampaign(scope.campaign.id);
 
-    await prisma.$transaction(async (tx) => {
-      for (const respondent of respondents) {
-        if (!respondent.email) {
-          continue;
+    if (!result.claimed) {
+      const latest = await prisma.surveyCampaign.findUnique({
+        where: {
+          id: scope.campaign.id
+        },
+        select: {
+          initialSendStatus: true
         }
+      });
 
-        const credential = await this.issueCredentialTx(tx, {
-          respondentId: respondent.id,
-          surveyCampaignId: scope.campaign.id,
-          credentialType: RespondentCredentialType.TOKEN,
-          expiresAt,
-          regenerate: true
-        });
-
-        if (credential.rawCredential && respondent.identifier) {
-          credentialsForEmail.push({
-            respondentId: respondent.id,
-            to: respondent.email,
-            magicLinkToken: credential.rawCredential,
-            accessCode: respondent.identifier,
-            expiresAt: credential.expiresAt
-          });
-        }
+      if (latest?.initialSendStatus === InitialSendStatus.COMPLETED) {
+        throw new AppError(
+          'El envío inicial ya fue procesado para esta campaña',
+          409,
+          'SURVEY_INITIAL_SEND_ALREADY_COMPLETED'
+        );
       }
-    });
 
-    const invitationResult = await this.sendInvitationMails(
-      credentialsForEmail.map((item) => ({
-        ...item,
-        companyName: scope.company.name,
-        campaignName: scope.campaign.name,
-        campaignSlug: scope.campaign.slug
-      }))
-    );
+      if (latest?.initialSendStatus === InitialSendStatus.PROCESSING) {
+        throw new AppError(
+          'El envío inicial ya está en proceso',
+          409,
+          'SURVEY_INITIAL_SEND_ALREADY_PROCESSING'
+        );
+      }
+
+      throw new AppError(
+        'No se pudo iniciar el envío de invitaciones',
+        409,
+        'SURVEY_INITIAL_SEND_NOT_CLAIMED'
+      );
+    }
 
     return {
       summary: {
-        respondents: respondents.length,
-        invitationsSent: invitationResult.success.length,
-        invitationFailures: invitationResult.failures.length
+        respondents: result.respondents,
+        invitationsSent: result.sent,
+        invitationFailures: result.failed,
+        invitationsSkipped: result.skipped
       }
     };
   }
